@@ -3,22 +3,17 @@
 # ============================================================================
 # AUTOMATED BUILD SCRIPT (Executed inside the ARM64 container)
 # TARGET: Asterisk 22 LTS for Debian 12 (Bookworm)
-# VERSION: Debug Enhanced v1.9 (Bootstrap fix)
+# VERSION: Debug Enhanced v2.0 (Bootstrap sequence fix)
 # ============================================================================
 
-# --- 1. BOOTSTRAP ENVIRONMENT (Safe Mode) ---
-# We do not use 'set -e' yet to prevent early crashes if a command is missing
-echo ">>> [BUILDER] Bootstrapping minimal environment..."
+# --- 1. BOOTSTRAP ENVIRONMENT ---
+echo ">>> [BUILDER] Initializing environment..."
 export DEBIAN_FRONTEND=noninteractive
 
 # Ensure standard paths are available
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
-# Install absolute necessities for the script to function
-apt-get update -qq
-apt-get install -y -qq --no-install-recommends procps python3 > /dev/null
-
-# Now that we have procps (free) and base tools, we can enable strict mode
+# Enable strict mode only AFTER basic setup functions are defined
 set -e
 
 # --- 2. DEBUG UTILS ---
@@ -33,7 +28,7 @@ sys_status() {
     if command -v free >/dev/null 2>&1; then
         free -m || echo "free command failed"
     else
-        echo "free command not found in PATH"
+        echo "free command not found (package procps not yet installed)"
     fi
     
     echo "Python version:"
@@ -71,12 +66,13 @@ BUILD_DIR="/usr/src/asterisk_build"
 OUTPUT_DIR="/workspace"
 
 # --- 4. MAIN BUILD PROCESS ---
-echo ">>> [BUILDER] Starting build for version: $ASTERISK_VER"
-sys_status
+echo ">>> [BUILDER] Starting build process for version: $ASTERISK_VER"
 
 log_step() { echo -e "\n>>> [BUILDER] $1\n"; }
 
-log_step "Installing full build dependencies..."
+log_step "Installing build dependencies..."
+apt-get update -qq
+# We install EVERYTHING here, including procps for the 'free' command
 apt-get install -y -qq --no-install-recommends \
     build-essential libc6-dev linux-libc-dev gcc g++ \
     git curl wget subversion pkg-config \
@@ -87,7 +83,10 @@ apt-get install -y -qq --no-install-recommends \
     libicu-dev libsrtp2-dev libopus-dev libvorbis-dev libspeex-dev \
     libspeexdsp-dev libgsm1-dev portaudio19-dev \
     unixodbc unixodbc-dev odbcinst libltdl-dev libsystemd-dev \
-    python3-dev python-is-python3
+    python3 python3-dev python-is-python3 procps
+
+# Now that dependencies are installed, we can safely call sys_status
+sys_status
 
 mkdir -p $BUILD_DIR
 cd $BUILD_DIR
