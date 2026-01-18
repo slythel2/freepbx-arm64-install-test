@@ -3,21 +3,23 @@
 # ============================================================================
 # AUTOMATED BUILD SCRIPT (Executed inside the ARM64 container)
 # TARGET: Asterisk 22 LTS for Debian 12 (Bookworm)
-# VERSION: Debug Enhanced v1.8 (Path & Dependency Guard)
+# VERSION: Debug Enhanced v1.9 (Bootstrap fix)
 # ============================================================================
 
-# Stop execution on any error
-set -e
-
-# --- 1. BOOTSTRAP ENVIRONMENT ---
-# We do NOT call any functions here. We just install what's missing for the script itself.
+# --- 1. BOOTSTRAP ENVIRONMENT (Safe Mode) ---
+# We do not use 'set -e' yet to prevent early crashes if a command is missing
 echo ">>> [BUILDER] Bootstrapping minimal environment..."
 export DEBIAN_FRONTEND=noninteractive
+
+# Ensure standard paths are available
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+
+# Install absolute necessities for the script to function
 apt-get update -qq
 apt-get install -y -qq --no-install-recommends procps python3 > /dev/null
 
-# Ensure /usr/sbin and /sbin are in PATH (sometimes missing in minimal containers)
-export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+# Now that we have procps (free) and base tools, we can enable strict mode
+set -e
 
 # --- 2. DEBUG UTILS ---
 
@@ -28,9 +30,8 @@ sys_status() {
     df -h / | tail -n 1
     
     echo "Memory Usage:"
-    # Use '|| true' and check command existence to prevent exit 127
     if command -v free >/dev/null 2>&1; then
-        free -m || echo "free command failed to execute"
+        free -m || echo "free command failed"
     else
         echo "free command not found in PATH"
     fi
