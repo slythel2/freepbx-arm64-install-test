@@ -3,18 +3,18 @@
 # ============================================================================
 # AUTOMATED BUILD SCRIPT (Executed inside the ARM64 container)
 # TARGET: Asterisk 22 LTS for Debian 12 (Bookworm)
-# VERSION: Debug Enhanced v1.6 (Bulletproof)
+# VERSION: Debug Enhanced v1.7 (Stable Environment)
 # ============================================================================
 
 # Stop execution on any error
 set -e
 
-# --- 1. IMMEDIATE SETUP ---
-# Install essential tools for the script itself before anything else
-echo ">>> [BUILDER] Initializing minimal environment..."
+# --- 1. INITIAL SYSTEM SETUP (No debug calls here) ---
+echo ">>> [BUILDER] Initializing environment and installing base dependencies..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq --no-install-recommends procps python3 > /dev/null
+# We install everything needed for the script to run safely first
+apt-get install -y -qq --no-install-recommends procps python3 python3-dev python-is-python3 > /dev/null
 
 # --- 2. DEBUG UTILS ---
 
@@ -55,7 +55,7 @@ failure_handler() {
     exit 1
 }
 
-# Activate TRAP
+# Activate TRAP now that we have the tools
 trap 'failure_handler $LINENO' ERR
 
 # --- 3. GLOBAL VARIABLES ---
@@ -81,8 +81,7 @@ apt-get install -y -qq --no-install-recommends \
     libssl-dev uuid-dev libjansson-dev libedit-dev libxslt1-dev \
     libicu-dev libsrtp2-dev libopus-dev libvorbis-dev libspeex-dev \
     libspeexdsp-dev libgsm1-dev portaudio19-dev \
-    unixodbc unixodbc-dev odbcinst libltdl-dev libsystemd-dev \
-    python3-dev python-is-python3
+    unixodbc unixodbc-dev odbcinst libltdl-dev libsystemd-dev
 
 mkdir -p $BUILD_DIR
 cd $BUILD_DIR
