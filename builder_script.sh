@@ -3,7 +3,7 @@
 # ============================================================================
 # AUTOMATED BUILD SCRIPT (Executed inside the ARM64 container)
 # TARGET: Asterisk 22 LTS for Debian 12 (Bookworm)
-# VERSION: Debug Enhanced v2.4 (Toolchain & AR Fix)
+# VERSION: Debug Enhanced v2.5 (PJProject Error 77 Fix)
 # ============================================================================
 
 # --- 0. CRLF AUTO-FIX ---
@@ -12,17 +12,18 @@ if [ "$(printf '%s' "$0" | xxd -p | tail -c 4)" == "0d0a" ]; then
     sed -i 's/\r$//' "$0"
 fi
 
-# --- 1. BOOTSTRAP ENVQIRONMENT ---
-echo ">>> [BUILDER] ENVIRONMENT INITIALIZATION - VERSION 2.4"
+# --- 1. BOOTSTRAP ENVIRONMENT ---
+echo ">>> [BUILDER] ENVIRONMENT INITIALIZATION - VERSION 2.5"
 export DEBIAN_FRONTEND=noninteractive
 
-# Force absolute paths for ARM64 toolchain
+# Force absolute paths for ARM64 toolchain to ensure consistency across sub-projects
 export AR=aarch64-linux-gnu-ar
 export AS=aarch64-linux-gnu-as
 export LD=aarch64-linux-gnu-ld
 export RANLIB=aarch64-linux-gnu-ranlib
 export CC=aarch64-linux-gnu-gcc
 export CXX=aarch64-linux-gnu-g++
+export STRIP=aarch64-linux-gnu-strip
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
 # Enable strict mode
@@ -31,7 +32,7 @@ set -e
 # --- 2. DEBUG UTILS ---
 
 sys_status() {
-    echo "--- [SYSTEM STATUS V2.4] ---"
+    echo "--- [SYSTEM STATUS V2.5] ---"
     echo "Disk Space:"
     df -h / | tail -n 1
     echo "Memory Usage:"
@@ -48,7 +49,7 @@ failure_handler() {
     fi
     if [ -f "third-party/pjproject/source/config.log" ]; then
         echo ">>> [DEBUG] PJProject config.log tail:"
-        tail -n 50 third-party/pjproject/source/config.log
+        tail -n 100 third-party/pjproject/source/config.log
     fi
     exit 1
 }
@@ -94,21 +95,28 @@ log_step "Downloading MP3 resources..."
 contrib/scripts/get_mp3_source.sh
 
 log_step "Configuring Asterisk..."
-# Added explicit AR and RANLIB to configure to avoid Error 2 in pjmedia
+# FIX: Added --build and explicit toolchain variables to bypass PJProject Error 77
+# We use --host and --build together to tell the scripts we are in a cross-emulation state
 ./configure --libdir=/usr/lib \
     --host=aarch64-linux-gnu \
+    --build=x86_64-pc-linux-gnu \
     --with-pjproject-bundled \
     --with-jansson \
     --without-x11 \
     --without-gtk2 \
     ac_cv_func_strtoq=yes \
+    CFLAGS='-O1' \
+    CXXFLAGS='-O1' \
     AR=$AR \
     RANLIB=$RANLIB \
-    CFLAGS='-O1' \
-    CXXFLAGS='-O1'
+    LD=$LD \
+    CC=$CC \
+    CXX=$CXX
 
-log_step "Cleaning third-party artifacts..."
+log_step "Pre-cleaning PJProject to avoid config issues..."
 make -C third-party/pjproject clean || true
+# Ensure no leftover site configs interfere with our cross-build
+rm -f third-party/pjproject/source/pjlib/include/pj/config_site.h || true
 
 log_step "Selecting modules (Menuselect)..."
 make menuselect.makeopts
@@ -119,10 +127,11 @@ menuselect/menuselect --enable CORE-SOUNDS-EN-ALAW menuselect.makeopts
 menuselect/menuselect --enable CORE-SOUNDS-EN-GSM menuselect.makeopts
 menuselect/menuselect --disable BUILD_NATIVE menuselect.makeopts
 
-log_step "Compiling (Single Core Mode - V=1 NOISY_BUILD=yes)..."
+log_step "Compiling (Single Core Mode - PJProject focus)..."
 sys_status
-# V=1 and NOISY_BUILD=yes ensure full command visibility even for sub-projects
-make -j1 V=1 NOISY_BUILD=yes
+# Passing toolchain again to make to ensure sub-makes (pjproject) use them
+make -j1 V=1 NOISY_BUILD=yes \
+    AR=$AR RANLIB=$RANLIB LD=$LD CC=$CC CXX=$CXX
 
 log_step "Creating installation structure..."
 make install DESTDIR=$BUILD_DIR/staging
