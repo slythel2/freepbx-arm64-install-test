@@ -3,7 +3,7 @@
 # ============================================================================
 # AUTOMATED BUILD SCRIPT (Executed inside the ARM64 container)
 # TARGET: Asterisk 22 LTS for Debian 12 (Bookworm)
-# VERSION: Debug Enhanced v2.5 (PJProject Error 77 Fix)
+# VERSION: Debug Enhanced v2.6 (Native-Emulated Fix)
 # ============================================================================
 
 # --- 0. CRLF AUTO-FIX ---
@@ -13,17 +13,15 @@ if [ "$(printf '%s' "$0" | xxd -p | tail -c 4)" == "0d0a" ]; then
 fi
 
 # --- 1. BOOTSTRAP ENVIRONMENT ---
-echo ">>> [BUILDER] ENVIRONMENT INITIALIZATION - VERSION 2.5"
+echo ">>> [BUILDER] ENVIRONMENT INITIALIZATION - VERSION 2.6"
 export DEBIAN_FRONTEND=noninteractive
 
-# Force absolute paths for ARM64 toolchain to ensure consistency across sub-projects
-export AR=aarch64-linux-gnu-ar
-export AS=aarch64-linux-gnu-as
-export LD=aarch64-linux-gnu-ld
-export RANLIB=aarch64-linux-gnu-ranlib
-export CC=aarch64-linux-gnu-gcc
-export CXX=aarch64-linux-gnu-g++
-export STRIP=aarch64-linux-gnu-strip
+# We use standard tool names because we are inside a native-emulated ARM64 container.
+# This prevents 'configure' from getting confused about cross-compilation limits.
+export CC=gcc
+export CXX=g++
+export AR=ar
+export RANLIB=ranlib
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
 # Enable strict mode
@@ -32,7 +30,7 @@ set -e
 # --- 2. DEBUG UTILS ---
 
 sys_status() {
-    echo "--- [SYSTEM STATUS V2.5] ---"
+    echo "--- [SYSTEM STATUS V2.6] ---"
     echo "Disk Space:"
     df -h / | tail -n 1
     echo "Memory Usage:"
@@ -45,7 +43,7 @@ failure_handler() {
     sys_status
     if [ -f "config.log" ]; then
         echo ">>> [DEBUG] Asterisk config.log tail:"
-        tail -n 50 config.log
+        tail -n 100 config.log
     fi
     if [ -f "third-party/pjproject/source/config.log" ]; then
         echo ">>> [DEBUG] PJProject config.log tail:"
@@ -67,6 +65,7 @@ log_step() { echo -e "\n>>> [BUILDER] STEP: $1\n"; }
 
 log_step "Installing core build dependencies..."
 apt-get update -qq
+# Added libjwt-dev, liburiparser-dev, liblua5.4-dev to satisfy newer Asterisk 22 checks
 apt-get install -y -qq --no-install-recommends \
     build-essential libc6-dev linux-libc-dev gcc g++ \
     git curl wget subversion pkg-config \
@@ -77,10 +76,16 @@ apt-get install -y -qq --no-install-recommends \
     libicu-dev libsrtp2-dev libopus-dev libvorbis-dev libspeex-dev \
     libspeexdsp-dev libgsm1-dev portaudio19-dev \
     unixodbc unixodbc-dev odbcinst libltdl-dev libsystemd-dev \
-    libasound2-dev libpulse-dev \
+    libasound2-dev libpulse-dev libjwt-dev liburiparser-dev liblua5.4-dev \
     python3 python3-dev python-is-python3 procps ca-certificates gnupg
 
 sys_status
+
+# Pre-flight check: verify that the compiler can actually run executables
+log_step "Pre-flight compiler check..."
+echo 'int main(){return 0;}' > /tmp/test.c
+gcc /tmp/test.c -o /tmp/test_exec
+/tmp/test_exec && echo ">>> [BUILDER] Compiler check passed." || (echo ">>> [BUILDER] Compiler cannot run executables!"; exit 1)
 
 mkdir -p $BUILD_DIR
 cd $BUILD_DIR
@@ -95,27 +100,19 @@ log_step "Downloading MP3 resources..."
 contrib/scripts/get_mp3_source.sh
 
 log_step "Configuring Asterisk..."
-# FIX: Added --build and explicit toolchain variables to bypass PJProject Error 77
-# We use --host and --build together to tell the scripts we are in a cross-emulation state
+# REMOVED --host and --build to treat this as a native build within the emulated container.
+# This allows 'configure' to correctly detect SIZEOF_INT and other types by running tests.
 ./configure --libdir=/usr/lib \
-    --host=aarch64-linux-gnu \
-    --build=x86_64-pc-linux-gnu \
     --with-pjproject-bundled \
     --with-jansson \
     --without-x11 \
     --without-gtk2 \
     ac_cv_func_strtoq=yes \
-    CFLAGS='-O1' \
-    CXXFLAGS='-O1' \
-    AR=$AR \
-    RANLIB=$RANLIB \
-    LD=$LD \
-    CC=$CC \
-    CXX=$CXX
+    CFLAGS='-O1 -pipe' \
+    CXXFLAGS='-O1 -pipe'
 
-log_step "Pre-cleaning PJProject to avoid config issues..."
+log_step "Pre-cleaning PJProject..."
 make -C third-party/pjproject clean || true
-# Ensure no leftover site configs interfere with our cross-build
 rm -f third-party/pjproject/source/pjlib/include/pj/config_site.h || true
 
 log_step "Selecting modules (Menuselect)..."
@@ -127,11 +124,10 @@ menuselect/menuselect --enable CORE-SOUNDS-EN-ALAW menuselect.makeopts
 menuselect/menuselect --enable CORE-SOUNDS-EN-GSM menuselect.makeopts
 menuselect/menuselect --disable BUILD_NATIVE menuselect.makeopts
 
-log_step "Compiling (Single Core Mode - PJProject focus)..."
+log_step "Compiling (Single Core Mode - V=1 NOISY_BUILD=yes)..."
 sys_status
-# Passing toolchain again to make to ensure sub-makes (pjproject) use them
-make -j1 V=1 NOISY_BUILD=yes \
-    AR=$AR RANLIB=$RANLIB LD=$LD CC=$CC CXX=$CXX
+# Standard build without forcing toolchain variables that might override sub-configures incorrectly
+make -j1 V=1 NOISY_BUILD=yes
 
 log_step "Creating installation structure..."
 make install DESTDIR=$BUILD_DIR/staging
