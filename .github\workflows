@@ -1,0 +1,51 @@
+name: Build Asterisk ARM64
+
+on:
+  workflow_dispatch:
+    inputs:
+      asterisk_version:
+        description: 'Asterisk Version (e.g., 22-current)'
+        required: true
+        default: '22-current'
+  schedule:
+    - cron: '0 0 1 * *'
+
+permissions:
+  contents: write
+
+jobs:
+  build-asterisk:
+    runs-on: ubuntu-latest
+    name: Build Asterisk ${{ inputs.asterisk_version || '22-current' }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup QEMU (ARM64 Emulation)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build in Debian 12 ARM64 Container
+        id: build
+        uses: uraimo/run-on-arch-action@v2
+        with:
+          arch: aarch64
+          distro: bookworm
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          dockerRunArgs: |
+            --volume "${PWD}:/workspace"
+            --shm-size=2g
+          run: |
+            chmod +x /workspace/builder_script.sh
+            /workspace/builder_script.sh "${{ inputs.asterisk_version || '22-current' }}"
+
+      - name: Upload Release to GitHub
+        if: success()
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: "Asterisk Auto-Build #${{ github.run_number }}"
+          body: "Automated build of Asterisk ${{ inputs.asterisk_version || '22-current' }} for ARM64 (Debian 12)."
+          files: asterisk-*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
