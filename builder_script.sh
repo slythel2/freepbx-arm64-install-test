@@ -1,48 +1,61 @@
 #!/bin/bash
 
 # ============================================================================
-# AUTOMATED BUILD SCRIPT
-# TARGET: Asterisk 22 LTS for Debian 12 (Bookworm)
+# SCRIPT DI BUILD AUTOMATIZZATO (Eseguito nel container ARM64)
+# TARGET: Asterisk 22 LTS per Debian 12 (Bookworm)
+# VERSIONE: Debug Enhanced v1.5 (Stabilizzata per QEMU)
 # ============================================================================
 
-# Stop execution on any error
+# Interrompi l'esecuzione in caso di errore
 set -e
 
-# Function to display system status
+# --- 1. UTILITY DI DEBUG ---
+
+# Funzione per visualizzare lo stato del sistema (RAM, Disco, Python)
 sys_status() {
-    echo "--- [DEBUG STATUS] ---"
-    echo "Disk Space:"
+    echo "--- [STATO DEBUG] ---"
+    echo "Spazio Disco:"
     df -h / | tail -n 1
-    echo "Memory Usage:"
-    free -m
-    echo "Python version:"
-    python3 --version || echo "Python3 not found"
+    
+    echo "Utilizzo Memoria:"
+    if command -v free >/dev/null 2>&1; then
+        free -m
+    else
+        echo "Comando 'free' non trovato (procps mancante)"
+    fi
+    
+    echo "Versione Python:"
+    if command -v python3 >/dev/null 2>&1; then
+        python3 --version
+    else
+        echo "Python3 non trovato"
+    fi
     echo "----------------------"
 }
 
-# The Failure Handler: This captures the exact line of failure and prints logs
+# Gestore dei fallimenti: cattura la linea esatta dell'errore e stampa i log
 failure_handler() {
-    echo ">>> [FATAL] Build failed at line $1"
+    echo ">>> [FATALE] Build fallito alla riga $1"
     sys_status
     
-    # Print Asterisk config logs if they exist
+    # Stampa i log di configurazione di Asterisk se esistono
     if [ -f "config.log" ]; then
-        echo ">>> [DEBUG] Last 100 lines of Asterisk config.log:"
+        echo ">>> [DEBUG] Ultime 100 righe di Asterisk config.log:"
         tail -n 100 config.log
     fi
     
-    # Print PJProject config logs (the most common cause of failure)
+    # Stampa i log di PJProject (causa comune di fallimento)
     if [ -f "third-party/pjproject/source/config.log" ]; then
-        echo ">>> [DEBUG] Last 100 lines of PJProject config.log:"
+        echo ">>> [DEBUG] Ultime 100 righe di PJProject config.log:"
         tail -n 100 third-party/pjproject/source/config.log
     fi
     exit 1
 }
 
-# ACTIVATE THE TRAP: This tells the script to call failure_handler on any error
+# Attivazione del TRAP: chiama failure_handler su ogni errore
 trap 'failure_handler $LINENO' ERR
 
-# --- 2. GLOBAL VARIABLES ---
+# --- 2. VARIABILI GLOBALI ---
 ASTERISK_VER="$1"
 [ -z "$ASTERISK_VER" ] && ASTERISK_VER="22-current"
 
@@ -50,14 +63,15 @@ BUILD_DIR="/usr/src/asterisk_build"
 OUTPUT_DIR="/workspace"
 DEBIAN_FRONTEND=noninteractive
 
-# --- 3. MAIN BUILD PROCESS ---
-echo ">>> [BUILDER] Starting build for version: $ASTERISK_VER"
+# --- 3. PROCESSO DI BUILD PRINCIPALE ---
+echo ">>> [BUILDER] Avvio build per la versione: $ASTERISK_VER"
 sys_status
 
 log_step() { echo -e "\n>>> [BUILDER] $1\n"; }
 
-log_step "Installing dependencies..."
+log_step "Installazione dipendenze..."
 apt-get update -qq
+# Inclusi strumenti critici come bison, flex e procps
 apt-get install -y -qq --no-install-recommends \
     build-essential libc6-dev linux-libc-dev gcc g++ \
     git curl wget subversion pkg-config \
@@ -68,21 +82,23 @@ apt-get install -y -qq --no-install-recommends \
     libicu-dev libsrtp2-dev libopus-dev libvorbis-dev libspeex-dev \
     libspeexdsp-dev libgsm1-dev portaudio19-dev \
     unixodbc unixodbc-dev odbcinst libltdl-dev libsystemd-dev \
-    python3 python3-dev python-is-python3
+    python3 python3-dev python-is-python3 procps
 
 mkdir -p $BUILD_DIR
 cd $BUILD_DIR
 
-log_step "Downloading Asterisk sources..."
+log_step "Download sorgenti Asterisk..."
 wget -qO asterisk.tar.gz "https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-${ASTERISK_VER}.tar.gz"
 tar -xzf asterisk.tar.gz --strip-components=1
 rm asterisk.tar.gz
 
-log_step "Downloading MP3 resources..."
+log_step "Download risorse MP3..."
 contrib/scripts/get_mp3_source.sh
 
-log_step "Configuring Asterisk..."
-# Added --host to fix "cannot run C compiled programs" under QEMU
+log_step "Configurazione Asterisk..."
+# --host: corregge l'errore 77 (cross-compile check) sotto QEMU
+# --with-jansson: forza l'uso della libreria di sistema per evitare build bundled fallimentari
+# CFLAGS -O1: ottimizzazione sicura per prevenire segfault del compilatore
 ./configure --libdir=/usr/lib \
     --host=aarch64-linux-gnu \
     --with-pjproject-bundled \
@@ -93,11 +109,11 @@ log_step "Configuring Asterisk..."
     CFLAGS='-O1' \
     CXXFLAGS='-O1'
 
-log_step "Cleaning third-party artifacts..."
+log_step "Pulizia artefatti third-party..."
 make -C third-party/pjproject clean || true
 rm -rf third-party/jansson/dist || true
 
-log_step "Selecting modules..."
+log_step "Selezione moduli (Menuselect)..."
 make menuselect.makeopts
 menuselect/menuselect --enable format_mp3 menuselect.makeopts
 menuselect/menuselect --enable CORE-SOUNDS-EN-WAV menuselect.makeopts
@@ -106,20 +122,21 @@ menuselect/menuselect --enable CORE-SOUNDS-EN-ALAW menuselect.makeopts
 menuselect/menuselect --enable CORE-SOUNDS-EN-GSM menuselect.makeopts
 menuselect/menuselect --disable BUILD_NATIVE menuselect.makeopts
 
-log_step "Compiling (Single core mode)..."
+log_step "Compilazione (Modalità Single Core)..."
 sys_status
+# Obbligatorio -j1 in ambienti QEMU per evitare corruzioni di memoria
 make -j1
 
-log_step "Creating installation structure..."
+log_step "Creazione struttura di installazione..."
 make install DESTDIR=$BUILD_DIR/staging
 make samples DESTDIR=$BUILD_DIR/staging
 make config DESTDIR=$BUILD_DIR/staging
 
-log_step "Final packaging..."
+log_step "Packaging finale..."
 sys_status
 cd $BUILD_DIR/staging
 TAR_NAME="asterisk-${ASTERISK_VER}-arm64-debian12.tar.gz"
 du -sh .
 tar -czvf "$OUTPUT_DIR/$TAR_NAME" .
 
-echo ">>> [BUILDER] Success! Artifact created: $TAR_NAME"
+echo ">>> [BUILDER] Successo! Artefatto creato: $TAR_NAME"
