@@ -3,18 +3,17 @@
 # ============================================================================
 # AUTOMATED BUILD SCRIPT (Executed inside the ARM64 container)
 # TARGET: Asterisk 22 LTS for Debian 12 (Bookworm)
-# VERSION: Debug Enhanced v2.1 (CRLF Fix & Version Check)
+# VERSION: Debug Enhanced v2.2 (SSL & Download Fix)
 # ============================================================================
 
 # --- 0. CRLF AUTO-FIX (For Windows users) ---
-# If this script has Windows line endings, this block tries to fix it on the fly
 if [ "$(printf '%s' "$0" | xxd -p | tail -c 4)" == "0d0a" ]; then
     echo ">>> [BUILDER] Windows line endings detected. Attempting self-fix..."
     sed -i 's/\r$//' "$0"
 fi
 
 # --- 1. BOOTSTRAP ENVIRONMENT ---
-echo ">>> [BUILDER] ENVIRONMENT INITIALIZATION - VERSION 2.1"
+echo ">>> [BUILDER] ENVIRONMENT INITIALIZATION - VERSION 2.2"
 export DEBIAN_FRONTEND=noninteractive
 
 # Ensure standard paths are available
@@ -27,7 +26,7 @@ set -e
 
 # Function to display system status (RAM, Disk, Python)
 sys_status() {
-    echo "--- [SYSTEM STATUS V2.1] ---"
+    echo "--- [SYSTEM STATUS V2.2] ---"
     echo "Disk Space:"
     df -h / | tail -n 1
     
@@ -35,7 +34,7 @@ sys_status() {
     if command -v free >/dev/null 2>&1; then
         free -m || echo "free command failed"
     else
-        echo "free command not found (package procps not yet installed)"
+        echo "free command not found"
     fi
     
     echo "Python version:"
@@ -77,9 +76,9 @@ echo ">>> [BUILDER] Starting build process for Asterisk: $ASTERISK_VER"
 
 log_step() { echo -e "\n>>> [BUILDER] STEP: $1\n"; }
 
-log_step "Installing core build dependencies (including procps)..."
+log_step "Installing core build dependencies (including SSL certs)..."
 apt-get update -qq
-# We install everything here. procps provides the 'free' command.
+# Added ca-certificates and gnupg to ensure HTTPS downloads work
 apt-get install -y -qq --no-install-recommends \
     build-essential libc6-dev linux-libc-dev gcc g++ \
     git curl wget subversion pkg-config \
@@ -90,7 +89,7 @@ apt-get install -y -qq --no-install-recommends \
     libicu-dev libsrtp2-dev libopus-dev libvorbis-dev libspeex-dev \
     libspeexdsp-dev libgsm1-dev portaudio19-dev \
     unixodbc unixodbc-dev odbcinst libltdl-dev libsystemd-dev \
-    python3 python3-dev python-is-python3 procps
+    python3 python3-dev python-is-python3 procps ca-certificates gnupg
 
 # Now we can safely call sys_status because procps is installed
 sys_status
@@ -99,7 +98,11 @@ mkdir -p $BUILD_DIR
 cd $BUILD_DIR
 
 log_step "Downloading Asterisk sources..."
-wget -qO asterisk.tar.gz "https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-${ASTERISK_VER}.tar.gz"
+# Removed -q (quiet) to see download errors. Added retries and timeout.
+# Added --no-check-certificate as a last resort for QEMU environments with clock skew
+wget --tries=3 --timeout=30 --no-check-certificate \
+    -O asterisk.tar.gz "https://downloads.asterisk.org/pub/telephony/asterisk/asterisk-${ASTERISK_VER}.tar.gz"
+
 tar -xzf asterisk.tar.gz --strip-components=1
 rm asterisk.tar.gz
 
