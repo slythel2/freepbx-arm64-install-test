@@ -3,18 +3,21 @@
 # ============================================================================
 # AUTOMATED BUILD SCRIPT (Executed inside the ARM64 container)
 # TARGET: Asterisk 22 LTS for Debian 12 (Bookworm)
-# VERSION: Debug Enhanced v1.7 (Stable Environment)
+# VERSION: Debug Enhanced v1.8 (Path & Dependency Guard)
 # ============================================================================
 
 # Stop execution on any error
 set -e
 
-# --- 1. INITIAL SYSTEM SETUP (No debug calls here) ---
-echo ">>> [BUILDER] Initializing environment and installing base dependencies..."
+# --- 1. BOOTSTRAP ENVIRONMENT ---
+# We do NOT call any functions here. We just install what's missing for the script itself.
+echo ">>> [BUILDER] Bootstrapping minimal environment..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-# We install everything needed for the script to run safely first
-apt-get install -y -qq --no-install-recommends procps python3 python3-dev python-is-python3 > /dev/null
+apt-get install -y -qq --no-install-recommends procps python3 > /dev/null
+
+# Ensure /usr/sbin and /sbin are in PATH (sometimes missing in minimal containers)
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
 # --- 2. DEBUG UTILS ---
 
@@ -25,10 +28,11 @@ sys_status() {
     df -h / | tail -n 1
     
     echo "Memory Usage:"
+    # Use '|| true' and check command existence to prevent exit 127
     if command -v free >/dev/null 2>&1; then
-        free -m
+        free -m || echo "free command failed to execute"
     else
-        echo "free command not found"
+        echo "free command not found in PATH"
     fi
     
     echo "Python version:"
@@ -55,7 +59,7 @@ failure_handler() {
     exit 1
 }
 
-# Activate TRAP now that we have the tools
+# Activate TRAP
 trap 'failure_handler $LINENO' ERR
 
 # --- 3. GLOBAL VARIABLES ---
@@ -81,7 +85,8 @@ apt-get install -y -qq --no-install-recommends \
     libssl-dev uuid-dev libjansson-dev libedit-dev libxslt1-dev \
     libicu-dev libsrtp2-dev libopus-dev libvorbis-dev libspeex-dev \
     libspeexdsp-dev libgsm1-dev portaudio19-dev \
-    unixodbc unixodbc-dev odbcinst libltdl-dev libsystemd-dev
+    unixodbc unixodbc-dev odbcinst libltdl-dev libsystemd-dev \
+    python3-dev python-is-python3
 
 mkdir -p $BUILD_DIR
 cd $BUILD_DIR
