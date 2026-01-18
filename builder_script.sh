@@ -3,11 +3,18 @@
 # ============================================================================
 # AUTOMATED BUILD SCRIPT (Executed inside the ARM64 container)
 # TARGET: Asterisk 22 LTS for Debian 12 (Bookworm)
-# VERSION: Debug Enhanced v2.0 (Bootstrap sequence fix)
+# VERSION: Debug Enhanced v2.1 (CRLF Fix & Version Check)
 # ============================================================================
 
+# --- 0. CRLF AUTO-FIX (For Windows users) ---
+# If this script has Windows line endings, this block tries to fix it on the fly
+if [ "$(printf '%s' "$0" | xxd -p | tail -c 4)" == "0d0a" ]; then
+    echo ">>> [BUILDER] Windows line endings detected. Attempting self-fix..."
+    sed -i 's/\r$//' "$0"
+fi
+
 # --- 1. BOOTSTRAP ENVIRONMENT ---
-echo ">>> [BUILDER] Initializing environment..."
+echo ">>> [BUILDER] ENVIRONMENT INITIALIZATION - VERSION 2.1"
 export DEBIAN_FRONTEND=noninteractive
 
 # Ensure standard paths are available
@@ -20,7 +27,7 @@ set -e
 
 # Function to display system status (RAM, Disk, Python)
 sys_status() {
-    echo "--- [SYSTEM STATUS] ---"
+    echo "--- [SYSTEM STATUS V2.1] ---"
     echo "Disk Space:"
     df -h / | tail -n 1
     
@@ -33,12 +40,12 @@ sys_status() {
     
     echo "Python version:"
     python3 --version 2>/dev/null || echo "Python3 not active"
-    echo "-----------------------"
+    echo "----------------------------"
 }
 
 # Failure Handler: Captures failure line and prints logs
 failure_handler() {
-    echo ">>> [FATAL] Build failed at line $1"
+    echo ">>> [FATAL ERROR] Build failed at line $1"
     sys_status
     
     # Print Asterisk config logs
@@ -66,13 +73,13 @@ BUILD_DIR="/usr/src/asterisk_build"
 OUTPUT_DIR="/workspace"
 
 # --- 4. MAIN BUILD PROCESS ---
-echo ">>> [BUILDER] Starting build process for version: $ASTERISK_VER"
+echo ">>> [BUILDER] Starting build process for Asterisk: $ASTERISK_VER"
 
-log_step() { echo -e "\n>>> [BUILDER] $1\n"; }
+log_step() { echo -e "\n>>> [BUILDER] STEP: $1\n"; }
 
-log_step "Installing build dependencies..."
+log_step "Installing core build dependencies (including procps)..."
 apt-get update -qq
-# We install EVERYTHING here, including procps for the 'free' command
+# We install everything here. procps provides the 'free' command.
 apt-get install -y -qq --no-install-recommends \
     build-essential libc6-dev linux-libc-dev gcc g++ \
     git curl wget subversion pkg-config \
@@ -85,7 +92,7 @@ apt-get install -y -qq --no-install-recommends \
     unixodbc unixodbc-dev odbcinst libltdl-dev libsystemd-dev \
     python3 python3-dev python-is-python3 procps
 
-# Now that dependencies are installed, we can safely call sys_status
+# Now we can safely call sys_status because procps is installed
 sys_status
 
 mkdir -p $BUILD_DIR
@@ -126,7 +133,7 @@ menuselect/menuselect --enable CORE-SOUNDS-EN-ALAW menuselect.makeopts
 menuselect/menuselect --enable CORE-SOUNDS-EN-GSM menuselect.makeopts
 menuselect/menuselect --disable BUILD_NATIVE menuselect.makeopts
 
-log_step "Compiling (Single Core Mode)..."
+log_step "Compiling (Single Core Mode - This will take time)..."
 sys_status
 # Mandatory -j1 in QEMU to avoid memory corruption
 make -j1
