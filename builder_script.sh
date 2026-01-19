@@ -3,7 +3,7 @@
 # ============================================================================
 # AUTOMATED BUILD SCRIPT (Executed inside the ARM64 container)
 # TARGET: Asterisk 22 LTS for Debian 12 (Bookworm)
-# VERSION: Debug Enhanced v2.11 (Standard Opts + Memory Safety)
+# VERSION: Debug Enhanced v2.12 (Force Make Override -O1)
 # ============================================================================
 
 # --- 0. CRLF AUTO-FIX ---
@@ -13,7 +13,7 @@ if [ "$(printf '%s' "$0" | xxd -p | tail -c 4)" == "0d0a" ]; then
 fi
 
 # --- 1. BOOTSTRAP ENVIRONMENT ---
-echo ">>> [BUILDER] ENVIRONMENT INITIALIZATION - VERSION 2.11"
+echo ">>> [BUILDER] ENVIRONMENT INITIALIZATION - VERSION 2.12"
 export DEBIAN_FRONTEND=noninteractive
 
 # Standard tool names
@@ -25,10 +25,10 @@ export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
 # GLOBAL FLAGS: 
 # -g0: No debug symbols (Save RAM/Disk)
-# -O2: Standard optimization (Stable)
+# -O1: Conservative optimization (Crucial for QEMU stability on ARM64)
 # -fno-var-tracking-assignments: Fixes GCC segfaults in QEMU/Low-Mem
-export CFLAGS="-g0 -O2 -fno-var-tracking-assignments"
-export CXXFLAGS="-g0 -O2 -fno-var-tracking-assignments"
+export CFLAGS="-g0 -O1 -fno-var-tracking-assignments"
+export CXXFLAGS="-g0 -O1 -fno-var-tracking-assignments"
 # Reduce memory usage during linking
 export LDFLAGS="-Wl,--no-keep-memory -Wl,--reduce-memory-overheads"
 
@@ -41,7 +41,7 @@ set -e
 # --- 2. DEBUG UTILS ---
 
 sys_status() {
-    echo "--- [SYSTEM STATUS V2.11] ---"
+    echo "--- [SYSTEM STATUS V2.12] ---"
     echo "Disk Space:"
     df -h / | tail -n 1
     echo "Memory Usage:"
@@ -113,9 +113,7 @@ log_step "Downloading MP3 resources..."
 contrib/scripts/get_mp3_source.sh
 
 log_step "Configuring Asterisk..."
-# Removed --without-pulseaudio (not strictly needed if dev libs are missing, configure handles it)
-# Removed CFLAGS arguments (using export instead)
-# Removed --host/--build (Native detection works best)
+# Standard configuration. We rely on exported CFLAGS and MAKE variables for optimization control.
 ./configure --libdir=/usr/lib \
     --with-pjproject-bundled \
     --with-jansson-bundled \
@@ -136,10 +134,13 @@ menuselect/menuselect --enable CORE-SOUNDS-EN-ALAW menuselect.makeopts
 menuselect/menuselect --enable CORE-SOUNDS-EN-GSM menuselect.makeopts
 menuselect/menuselect --disable BUILD_NATIVE menuselect.makeopts
 
-log_step "Compiling (Single Core Mode - Optimized for Stability)..."
+log_step "Compiling (Single Core Mode - FORCED -O1)..."
 sys_status
-# V=1 kept for visibility
-make -j1 V=1 NOISY_BUILD=yes
+# FORCE OPTIMIZATION: We pass OPTIMIZE and ASTCFLAGS to 'make' to override 
+# any internal Makefiles (like utils/Makefile) that try to force -O3.
+make -j1 V=1 NOISY_BUILD=yes \
+    OPTIMIZE="-O1 -g0 -fno-var-tracking-assignments" \
+    ASTCFLAGS="-O1 -g0 -fno-var-tracking-assignments"
 
 log_step "Creating installation structure..."
 make install DESTDIR=$BUILD_DIR/staging
