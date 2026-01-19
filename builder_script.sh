@@ -3,7 +3,7 @@
 # ============================================================================
 # AUTOMATED BUILD SCRIPT (Executed inside the ARM64 container)
 # TARGET: Asterisk 22 LTS for Debian 12 (Bookworm)
-# VERSION: Debug Enhanced v2.13 (Configure Clean, Compile Safe)
+# VERSION: Debug Enhanced v2.14 (Compiling with -O0 for QEMU stability)
 # ============================================================================
 
 # --- 0. CRLF AUTO-FIX ---
@@ -13,7 +13,7 @@ if [ "$(printf '%s' "$0" | xxd -p | tail -c 4)" == "0d0a" ]; then
 fi
 
 # --- 1. BOOTSTRAP ENVIRONMENT ---
-echo ">>> [BUILDER] ENVIRONMENT INITIALIZATION - VERSION 2.13"
+echo ">>> [BUILDER] ENVIRONMENT INITIALIZATION - VERSION 2.14"
 export DEBIAN_FRONTEND=noninteractive
 
 # Standard tool names
@@ -32,7 +32,7 @@ set -e
 # --- 2. DEBUG UTILS ---
 
 sys_status() {
-    echo "--- [SYSTEM STATUS V2.13] ---"
+    echo "--- [SYSTEM STATUS V2.14] ---"
     echo "Disk Space:"
     df -h / | tail -n 1
     echo "Memory Usage:"
@@ -127,13 +127,13 @@ menuselect/menuselect --enable CORE-SOUNDS-EN-ALAW menuselect.makeopts
 menuselect/menuselect --enable CORE-SOUNDS-EN-GSM menuselect.makeopts
 menuselect/menuselect --disable BUILD_NATIVE menuselect.makeopts
 
-log_step "Compiling (Single Core Mode - FORCED OPTIMIZE)..."
+log_step "Compiling (Single Core Mode - FORCED -O0)..."
 sys_status
-# HERE IS THE FIX: We pass OPTIMIZE flags strictly to 'make'.
-# This overrides the internal Makefiles (like astcanary's -O3) effectively
-# preventing the segmentation fault, without breaking ./configure tests.
+# HERE IS THE FIX: We force OPTIMIZE to -O0.
+# This prevents the segmentation fault in QEMU when compiling complex files like sip_auth_msg.o
+# We pass it to make, so ./configure runs cleanly with defaults before this step.
 make -j1 V=1 NOISY_BUILD=yes \
-    OPTIMIZE="-O1 -g0 -fno-var-tracking-assignments"
+    OPTIMIZE="-O0 -g0 -fno-var-tracking-assignments"
 
 log_step "Creating installation structure..."
 make install DESTDIR=$BUILD_DIR/staging
