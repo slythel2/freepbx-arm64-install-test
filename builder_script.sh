@@ -3,7 +3,7 @@
 # ============================================================================
 # AUTOMATED BUILD SCRIPT (Executed inside the ARM64 container)
 # TARGET: Asterisk 22 LTS for Debian 12 (Bookworm)
-# VERSION: Debug Enhanced v2.6 (Native-Emulated Fix)
+# VERSION: Debug Enhanced v2.8 (Legacy-inspired fix: Jansson Bundled)
 # ============================================================================
 
 # --- 0. CRLF AUTO-FIX ---
@@ -13,11 +13,10 @@ if [ "$(printf '%s' "$0" | xxd -p | tail -c 4)" == "0d0a" ]; then
 fi
 
 # --- 1. BOOTSTRAP ENVIRONMENT ---
-echo ">>> [BUILDER] ENVIRONMENT INITIALIZATION - VERSION 2.6"
+echo ">>> [BUILDER] ENVIRONMENT INITIALIZATION - VERSION 2.8"
 export DEBIAN_FRONTEND=noninteractive
 
-# We use standard tool names because we are inside a native-emulated ARM64 container.
-# This prevents 'configure' from getting confused about cross-compilation limits.
+# Standard tool names for native-emulated environment
 export CC=gcc
 export CXX=g++
 export AR=ar
@@ -30,7 +29,7 @@ set -e
 # --- 2. DEBUG UTILS ---
 
 sys_status() {
-    echo "--- [SYSTEM STATUS V2.6] ---"
+    echo "--- [SYSTEM STATUS V2.8] ---"
     echo "Disk Space:"
     df -h / | tail -n 1
     echo "Memory Usage:"
@@ -65,7 +64,8 @@ log_step() { echo -e "\n>>> [BUILDER] STEP: $1\n"; }
 
 log_step "Installing core build dependencies..."
 apt-get update -qq
-# Added libjwt-dev, liburiparser-dev, liblua5.4-dev to satisfy newer Asterisk 22 checks
+
+# Installing dependencies similar to legacy script + extras for v22
 apt-get install -y -qq --no-install-recommends \
     build-essential libc6-dev linux-libc-dev gcc g++ \
     git curl wget subversion pkg-config \
@@ -76,12 +76,12 @@ apt-get install -y -qq --no-install-recommends \
     libicu-dev libsrtp2-dev libopus-dev libvorbis-dev libspeex-dev \
     libspeexdsp-dev libgsm1-dev portaudio19-dev \
     unixodbc unixodbc-dev odbcinst libltdl-dev libsystemd-dev \
-    libasound2-dev libpulse-dev libjwt-dev liburiparser-dev liblua5.4-dev \
+    libasound2-dev libjwt-dev liburiparser-dev liblua5.4-dev \
     python3 python3-dev python-is-python3 procps ca-certificates gnupg
 
 sys_status
 
-# Pre-flight check: verify that the compiler can actually run executables
+# Pre-flight compiler check
 log_step "Pre-flight compiler check..."
 echo 'int main(){return 0;}' > /tmp/test.c
 gcc /tmp/test.c -o /tmp/test_exec
@@ -100,20 +100,25 @@ log_step "Downloading MP3 resources..."
 contrib/scripts/get_mp3_source.sh
 
 log_step "Configuring Asterisk..."
-# REMOVED --host and --build to treat this as a native build within the emulated container.
-# This allows 'configure' to correctly detect SIZEOF_INT and other types by running tests.
+# ADOPTED FROM LEGACY SCRIPT:
+# --with-jansson-bundled: Reverted to bundled jansson as per legacy success
+# --with-pjproject-bundled: Essential for stability
+# --without-pulseaudio: Kept to avoid dev lib dependency issues
+# Removed --host/--build to rely on native emulation detection
 ./configure --libdir=/usr/lib \
     --with-pjproject-bundled \
-    --with-jansson \
+    --with-jansson-bundled \
     --without-x11 \
     --without-gtk2 \
+    --without-pulseaudio \
     ac_cv_func_strtoq=yes \
     CFLAGS='-O1 -pipe' \
     CXXFLAGS='-O1 -pipe'
 
 log_step "Pre-cleaning PJProject..."
 make -C third-party/pjproject clean || true
-rm -f third-party/pjproject/source/pjlib/include/pj/config_site.h || true
+# Explicitly clean jansson too since we are bundling it now
+rm -rf third-party/jansson/dist || true
 
 log_step "Selecting modules (Menuselect)..."
 make menuselect.makeopts
@@ -126,7 +131,7 @@ menuselect/menuselect --disable BUILD_NATIVE menuselect.makeopts
 
 log_step "Compiling (Single Core Mode - V=1 NOISY_BUILD=yes)..."
 sys_status
-# Standard build without forcing toolchain variables that might override sub-configures incorrectly
+# Using single core mode as QEMU is still the bottleneck
 make -j1 V=1 NOISY_BUILD=yes
 
 log_step "Creating installation structure..."
