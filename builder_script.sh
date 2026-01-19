@@ -3,7 +3,7 @@
 # ============================================================================
 # AUTOMATED BUILD SCRIPT (Executed inside the ARM64 container)
 # TARGET: Asterisk 22 LTS for Debian 12 (Bookworm)
-# VERSION: Debug Enhanced v2.12 (Force Make Override -O1)
+# VERSION: Debug Enhanced v2.13 (Configure Clean, Compile Safe)
 # ============================================================================
 
 # --- 0. CRLF AUTO-FIX ---
@@ -13,7 +13,7 @@ if [ "$(printf '%s' "$0" | xxd -p | tail -c 4)" == "0d0a" ]; then
 fi
 
 # --- 1. BOOTSTRAP ENVIRONMENT ---
-echo ">>> [BUILDER] ENVIRONMENT INITIALIZATION - VERSION 2.12"
+echo ">>> [BUILDER] ENVIRONMENT INITIALIZATION - VERSION 2.13"
 export DEBIAN_FRONTEND=noninteractive
 
 # Standard tool names
@@ -22,15 +22,6 @@ export CXX=g++
 export AR=ar
 export RANLIB=ranlib
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
-
-# GLOBAL FLAGS: 
-# -g0: No debug symbols (Save RAM/Disk)
-# -O1: Conservative optimization (Crucial for QEMU stability on ARM64)
-# -fno-var-tracking-assignments: Fixes GCC segfaults in QEMU/Low-Mem
-export CFLAGS="-g0 -O1 -fno-var-tracking-assignments"
-export CXXFLAGS="-g0 -O1 -fno-var-tracking-assignments"
-# Reduce memory usage during linking
-export LDFLAGS="-Wl,--no-keep-memory -Wl,--reduce-memory-overheads"
 
 # Prevent Python crashes
 export PYTHONDONTWRITEBYTECODE=1
@@ -41,7 +32,7 @@ set -e
 # --- 2. DEBUG UTILS ---
 
 sys_status() {
-    echo "--- [SYSTEM STATUS V2.12] ---"
+    echo "--- [SYSTEM STATUS V2.13] ---"
     echo "Disk Space:"
     df -h / | tail -n 1
     echo "Memory Usage:"
@@ -113,13 +104,15 @@ log_step "Downloading MP3 resources..."
 contrib/scripts/get_mp3_source.sh
 
 log_step "Configuring Asterisk..."
-# Standard configuration. We rely on exported CFLAGS and MAKE variables for optimization control.
+# Removed GLOBAL CFLAGS to let configure run tests without interference.
+# Added ac_cv_header_resolv_h=yes to FORCE success for resolv.h check on Debian.
 ./configure --libdir=/usr/lib \
     --with-pjproject-bundled \
     --with-jansson-bundled \
     --without-x11 \
     --without-gtk2 \
-    ac_cv_func_strtoq=yes
+    ac_cv_func_strtoq=yes \
+    ac_cv_header_resolv_h=yes
 
 log_step "Pre-cleaning PJProject..."
 make -C third-party/pjproject clean || true
@@ -134,13 +127,13 @@ menuselect/menuselect --enable CORE-SOUNDS-EN-ALAW menuselect.makeopts
 menuselect/menuselect --enable CORE-SOUNDS-EN-GSM menuselect.makeopts
 menuselect/menuselect --disable BUILD_NATIVE menuselect.makeopts
 
-log_step "Compiling (Single Core Mode - FORCED -O1)..."
+log_step "Compiling (Single Core Mode - FORCED OPTIMIZE)..."
 sys_status
-# FORCE OPTIMIZATION: We pass OPTIMIZE and ASTCFLAGS to 'make' to override 
-# any internal Makefiles (like utils/Makefile) that try to force -O3.
+# HERE IS THE FIX: We pass OPTIMIZE flags strictly to 'make'.
+# This overrides the internal Makefiles (like astcanary's -O3) effectively
+# preventing the segmentation fault, without breaking ./configure tests.
 make -j1 V=1 NOISY_BUILD=yes \
-    OPTIMIZE="-O1 -g0 -fno-var-tracking-assignments" \
-    ASTCFLAGS="-O1 -g0 -fno-var-tracking-assignments"
+    OPTIMIZE="-O1 -g0 -fno-var-tracking-assignments"
 
 log_step "Creating installation structure..."
 make install DESTDIR=$BUILD_DIR/staging
