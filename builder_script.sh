@@ -3,7 +3,7 @@
 # ============================================================================
 # AUTOMATED BUILD SCRIPT (Executed inside the ARM64 container)
 # TARGET: Asterisk 22 LTS for Debian 12 (Bookworm)
-# VERSION: Debug Enhanced v2.9 (Ultimate Stability: -O0 -g0)
+# VERSION: Debug Enhanced v2.10 (No-Python-Dev & No-Bytecode)
 # ============================================================================
 
 # --- 0. CRLF AUTO-FIX ---
@@ -13,7 +13,7 @@ if [ "$(printf '%s' "$0" | xxd -p | tail -c 4)" == "0d0a" ]; then
 fi
 
 # --- 1. BOOTSTRAP ENVIRONMENT ---
-echo ">>> [BUILDER] ENVIRONMENT INITIALIZATION - VERSION 2.9"
+echo ">>> [BUILDER] ENVIRONMENT INITIALIZATION - VERSION 2.10"
 export DEBIAN_FRONTEND=noninteractive
 
 # Standard tool names for native-emulated environment
@@ -23,13 +23,16 @@ export AR=ar
 export RANLIB=ranlib
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
+# CRITICAL QEMU FIX: Prevent Python from writing bytecode (.pyc), which causes segfaults
+export PYTHONDONTWRITEBYTECODE=1
+
 # Enable strict mode
 set -e
 
 # --- 2. DEBUG UTILS ---
 
 sys_status() {
-    echo "--- [SYSTEM STATUS V2.9] ---"
+    echo "--- [SYSTEM STATUS V2.10] ---"
     echo "Disk Space:"
     df -h / | tail -n 1
     echo "Memory Usage:"
@@ -66,18 +69,20 @@ log_step "Installing core build dependencies..."
 apt-get update -qq
 
 # Installing dependencies similar to legacy script + extras for v22
+# REMOVED: python3-dev (Causes python3-lib2to3 segfault in QEMU)
+# ADDED: sqlite3 (Binary, alongside lib)
 apt-get install -y -qq --no-install-recommends \
     build-essential libc6-dev linux-libc-dev gcc g++ \
     git curl wget subversion pkg-config \
     autoconf automake libtool binutils \
     bison flex xmlstarlet libxml2-utils \
-    libncurses5-dev libncursesw5-dev libxml2-dev libsqlite3-dev \
+    libncurses5-dev libncursesw5-dev libxml2-dev libsqlite3-dev sqlite3 \
     libssl-dev uuid-dev libjansson-dev libedit-dev libxslt1-dev \
     libicu-dev libsrtp2-dev libopus-dev libvorbis-dev libspeex-dev \
     libspeexdsp-dev libgsm1-dev portaudio19-dev \
     unixodbc unixodbc-dev odbcinst libltdl-dev libsystemd-dev \
     libasound2-dev libjwt-dev liburiparser-dev liblua5.4-dev \
-    python3 python3-dev python-is-python3 procps ca-certificates gnupg
+    python3 python-is-python3 procps ca-certificates gnupg
 
 sys_status
 
@@ -100,9 +105,9 @@ log_step "Downloading MP3 resources..."
 contrib/scripts/get_mp3_source.sh
 
 log_step "Configuring Asterisk..."
-# CRITICAL FIX v2.9:
-# CFLAGS='-O0 -g0': Disables ALL optimizations and debug symbols.
-# This prevents QEMU/GCC segfaults on complex files like sound_port.o
+# CRITICAL FIX v2.9/v2.10:
+# CFLAGS='-O0 -g0': Disables ALL optimizations and debug symbols to prevent segfaults.
+# --without-pulseaudio: Avoids missing dev libs.
 ./configure --libdir=/usr/lib \
     --with-pjproject-bundled \
     --with-jansson-bundled \
