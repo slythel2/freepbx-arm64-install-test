@@ -3,7 +3,7 @@
 # ============================================================================
 # AUTOMATED BUILD SCRIPT (Executed inside the ARM64 container)
 # TARGET: Asterisk 22 LTS for Debian 12 (Bookworm)
-# VERSION: Debug Enhanced v2.14 (Compiling with -O0 for QEMU stability)
+# VERSION: Debug Enhanced v2.15 (Optimization -Os for Stability)
 # ============================================================================
 
 # --- 0. CRLF AUTO-FIX ---
@@ -13,7 +13,7 @@ if [ "$(printf '%s' "$0" | xxd -p | tail -c 4)" == "0d0a" ]; then
 fi
 
 # --- 1. BOOTSTRAP ENVIRONMENT ---
-echo ">>> [BUILDER] ENVIRONMENT INITIALIZATION - VERSION 2.14"
+echo ">>> [BUILDER] ENVIRONMENT INITIALIZATION - VERSION 2.15"
 export DEBIAN_FRONTEND=noninteractive
 
 # Standard tool names
@@ -23,7 +23,7 @@ export AR=ar
 export RANLIB=ranlib
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
-# Prevent Python crashes
+# Prevent Python crashes in QEMU
 export PYTHONDONTWRITEBYTECODE=1
 
 # Enable strict mode
@@ -32,7 +32,7 @@ set -e
 # --- 2. DEBUG UTILS ---
 
 sys_status() {
-    echo "--- [SYSTEM STATUS V2.14] ---"
+    echo "--- [SYSTEM STATUS V2.15] ---"
     echo "Disk Space:"
     df -h / | tail -n 1
     echo "Memory Usage:"
@@ -68,8 +68,7 @@ log_step() { echo -e "\n>>> [BUILDER] STEP: $1\n"; }
 log_step "Installing core build dependencies..."
 apt-get update -qq
 
-# Re-added python3-dev (safe now with bytecode disabled)
-# Added libsqlite3-dev explicitly
+# Dependencies optimized for stability and completeness
 apt-get install -y -qq --no-install-recommends \
     build-essential libc6-dev linux-libc-dev gcc g++ \
     git curl wget subversion pkg-config \
@@ -104,13 +103,19 @@ log_step "Downloading MP3 resources..."
 contrib/scripts/get_mp3_source.sh
 
 log_step "Configuring Asterisk..."
-# Removed GLOBAL CFLAGS to let configure run tests without interference.
-# Added ac_cv_header_resolv_h=yes to FORCE success for resolv.h check on Debian.
+# CONFIGURATION STRATEGY v2.15:
+# 1. Use --with-jansson-bundled (proven stable in legacy).
+# 2. Force ac_cv_header_resolv_h=yes to skip flaky QEMU check.
+# 3. Disable PulseAudio to avoid dev-lib dependencies.
+# 4. Pass --disable-cxx to PJProject to reduce compilation load.
+export PJPROJECT_CONFIGURE_OPTS="--disable-cxx"
+
 ./configure --libdir=/usr/lib \
     --with-pjproject-bundled \
     --with-jansson-bundled \
     --without-x11 \
     --without-gtk2 \
+    --without-pulseaudio \
     ac_cv_func_strtoq=yes \
     ac_cv_header_resolv_h=yes
 
@@ -127,13 +132,14 @@ menuselect/menuselect --enable CORE-SOUNDS-EN-ALAW menuselect.makeopts
 menuselect/menuselect --enable CORE-SOUNDS-EN-GSM menuselect.makeopts
 menuselect/menuselect --disable BUILD_NATIVE menuselect.makeopts
 
-log_step "Compiling (Single Core Mode - FORCED -O0)..."
+log_step "Compiling (Single Core Mode - OPTIMIZE=-Os)..."
 sys_status
-# HERE IS THE FIX: We force OPTIMIZE to -O0.
-# This prevents the segmentation fault in QEMU when compiling complex files like sip_auth_msg.o
-# We pass it to make, so ./configure runs cleanly with defaults before this step.
+# HERE IS THE KEY FIX: -Os (Optimize for Size).
+# It uses less RAM than -O1/-O2 and is safer for QEMU than -O0.
+# We also disable var-tracking to save memory during compilation.
 make -j1 V=1 NOISY_BUILD=yes \
-    OPTIMIZE="-O0 -g0 -fno-var-tracking-assignments"
+    OPTIMIZE="-Os -g0 -fno-var-tracking-assignments" \
+    ASTCFLAGS="-Os -g0 -fno-var-tracking-assignments"
 
 log_step "Creating installation structure..."
 make install DESTDIR=$BUILD_DIR/staging
