@@ -3,7 +3,7 @@
 # ============================================================================
 # AUTOMATED BUILD SCRIPT (Executed inside the ARM64 container)
 # TARGET: Asterisk 22 LTS for Debian 12 (Bookworm)
-# VERSION: Debug Enhanced v2.8 (Legacy-inspired fix: Jansson Bundled)
+# VERSION: Debug Enhanced v2.9 (Ultimate Stability: -O0 -g0)
 # ============================================================================
 
 # --- 0. CRLF AUTO-FIX ---
@@ -13,7 +13,7 @@ if [ "$(printf '%s' "$0" | xxd -p | tail -c 4)" == "0d0a" ]; then
 fi
 
 # --- 1. BOOTSTRAP ENVIRONMENT ---
-echo ">>> [BUILDER] ENVIRONMENT INITIALIZATION - VERSION 2.8"
+echo ">>> [BUILDER] ENVIRONMENT INITIALIZATION - VERSION 2.9"
 export DEBIAN_FRONTEND=noninteractive
 
 # Standard tool names for native-emulated environment
@@ -29,7 +29,7 @@ set -e
 # --- 2. DEBUG UTILS ---
 
 sys_status() {
-    echo "--- [SYSTEM STATUS V2.8] ---"
+    echo "--- [SYSTEM STATUS V2.9] ---"
     echo "Disk Space:"
     df -h / | tail -n 1
     echo "Memory Usage:"
@@ -100,11 +100,9 @@ log_step "Downloading MP3 resources..."
 contrib/scripts/get_mp3_source.sh
 
 log_step "Configuring Asterisk..."
-# ADOPTED FROM LEGACY SCRIPT:
-# --with-jansson-bundled: Reverted to bundled jansson as per legacy success
-# --with-pjproject-bundled: Essential for stability
-# --without-pulseaudio: Kept to avoid dev lib dependency issues
-# Removed --host/--build to rely on native emulation detection
+# CRITICAL FIX v2.9:
+# CFLAGS='-O0 -g0': Disables ALL optimizations and debug symbols.
+# This prevents QEMU/GCC segfaults on complex files like sound_port.o
 ./configure --libdir=/usr/lib \
     --with-pjproject-bundled \
     --with-jansson-bundled \
@@ -112,12 +110,11 @@ log_step "Configuring Asterisk..."
     --without-gtk2 \
     --without-pulseaudio \
     ac_cv_func_strtoq=yes \
-    CFLAGS='-O1 -pipe' \
-    CXXFLAGS='-O1 -pipe'
+    CFLAGS='-O0 -g0' \
+    CXXFLAGS='-O0 -g0'
 
 log_step "Pre-cleaning PJProject..."
 make -C third-party/pjproject clean || true
-# Explicitly clean jansson too since we are bundling it now
 rm -rf third-party/jansson/dist || true
 
 log_step "Selecting modules (Menuselect)..."
@@ -129,9 +126,9 @@ menuselect/menuselect --enable CORE-SOUNDS-EN-ALAW menuselect.makeopts
 menuselect/menuselect --enable CORE-SOUNDS-EN-GSM menuselect.makeopts
 menuselect/menuselect --disable BUILD_NATIVE menuselect.makeopts
 
-log_step "Compiling (Single Core Mode - V=1 NOISY_BUILD=yes)..."
+log_step "Compiling (Single Core Mode - O0 Stability)..."
 sys_status
-# Using single core mode as QEMU is still the bottleneck
+# V=1 kept to see command details if needed, but O0 should fix the crash
 make -j1 V=1 NOISY_BUILD=yes
 
 log_step "Creating installation structure..."
