@@ -3,7 +3,7 @@
 # ============================================================================
 # AUTOMATED BUILD SCRIPT (Executed inside the ARM64 container)
 # TARGET: Asterisk 22 LTS for Debian 12 (Bookworm)
-# VERSION: Debug Enhanced v2.10 (No-Python-Dev & No-Bytecode)
+# VERSION: Debug Enhanced v2.11 (Standard Opts + Memory Safety)
 # ============================================================================
 
 # --- 0. CRLF AUTO-FIX ---
@@ -13,17 +13,26 @@ if [ "$(printf '%s' "$0" | xxd -p | tail -c 4)" == "0d0a" ]; then
 fi
 
 # --- 1. BOOTSTRAP ENVIRONMENT ---
-echo ">>> [BUILDER] ENVIRONMENT INITIALIZATION - VERSION 2.10"
+echo ">>> [BUILDER] ENVIRONMENT INITIALIZATION - VERSION 2.11"
 export DEBIAN_FRONTEND=noninteractive
 
-# Standard tool names for native-emulated environment
+# Standard tool names
 export CC=gcc
 export CXX=g++
 export AR=ar
 export RANLIB=ranlib
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
-# CRITICAL QEMU FIX: Prevent Python from writing bytecode (.pyc), which causes segfaults
+# GLOBAL FLAGS: 
+# -g0: No debug symbols (Save RAM/Disk)
+# -O2: Standard optimization (Stable)
+# -fno-var-tracking-assignments: Fixes GCC segfaults in QEMU/Low-Mem
+export CFLAGS="-g0 -O2 -fno-var-tracking-assignments"
+export CXXFLAGS="-g0 -O2 -fno-var-tracking-assignments"
+# Reduce memory usage during linking
+export LDFLAGS="-Wl,--no-keep-memory -Wl,--reduce-memory-overheads"
+
+# Prevent Python crashes
 export PYTHONDONTWRITEBYTECODE=1
 
 # Enable strict mode
@@ -32,7 +41,7 @@ set -e
 # --- 2. DEBUG UTILS ---
 
 sys_status() {
-    echo "--- [SYSTEM STATUS V2.10] ---"
+    echo "--- [SYSTEM STATUS V2.11] ---"
     echo "Disk Space:"
     df -h / | tail -n 1
     echo "Memory Usage:"
@@ -68,9 +77,8 @@ log_step() { echo -e "\n>>> [BUILDER] STEP: $1\n"; }
 log_step "Installing core build dependencies..."
 apt-get update -qq
 
-# Installing dependencies similar to legacy script + extras for v22
-# REMOVED: python3-dev (Causes python3-lib2to3 segfault in QEMU)
-# ADDED: sqlite3 (Binary, alongside lib)
+# Re-added python3-dev (safe now with bytecode disabled)
+# Added libsqlite3-dev explicitly
 apt-get install -y -qq --no-install-recommends \
     build-essential libc6-dev linux-libc-dev gcc g++ \
     git curl wget subversion pkg-config \
@@ -82,7 +90,7 @@ apt-get install -y -qq --no-install-recommends \
     libspeexdsp-dev libgsm1-dev portaudio19-dev \
     unixodbc unixodbc-dev odbcinst libltdl-dev libsystemd-dev \
     libasound2-dev libjwt-dev liburiparser-dev liblua5.4-dev \
-    python3 python-is-python3 procps ca-certificates gnupg
+    python3 python3-dev python-is-python3 procps ca-certificates gnupg
 
 sys_status
 
@@ -105,18 +113,15 @@ log_step "Downloading MP3 resources..."
 contrib/scripts/get_mp3_source.sh
 
 log_step "Configuring Asterisk..."
-# CRITICAL FIX v2.9/v2.10:
-# CFLAGS='-O0 -g0': Disables ALL optimizations and debug symbols to prevent segfaults.
-# --without-pulseaudio: Avoids missing dev libs.
+# Removed --without-pulseaudio (not strictly needed if dev libs are missing, configure handles it)
+# Removed CFLAGS arguments (using export instead)
+# Removed --host/--build (Native detection works best)
 ./configure --libdir=/usr/lib \
     --with-pjproject-bundled \
     --with-jansson-bundled \
     --without-x11 \
     --without-gtk2 \
-    --without-pulseaudio \
-    ac_cv_func_strtoq=yes \
-    CFLAGS='-O0 -g0' \
-    CXXFLAGS='-O0 -g0'
+    ac_cv_func_strtoq=yes
 
 log_step "Pre-cleaning PJProject..."
 make -C third-party/pjproject clean || true
@@ -131,9 +136,9 @@ menuselect/menuselect --enable CORE-SOUNDS-EN-ALAW menuselect.makeopts
 menuselect/menuselect --enable CORE-SOUNDS-EN-GSM menuselect.makeopts
 menuselect/menuselect --disable BUILD_NATIVE menuselect.makeopts
 
-log_step "Compiling (Single Core Mode - O0 Stability)..."
+log_step "Compiling (Single Core Mode - Optimized for Stability)..."
 sys_status
-# V=1 kept to see command details if needed, but O0 should fix the crash
+# V=1 kept for visibility
 make -j1 V=1 NOISY_BUILD=yes
 
 log_step "Creating installation structure..."
