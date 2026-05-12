@@ -9,7 +9,10 @@ A vibe-coded, "one-click" installer for Asterisk 21 and FreePBX 17 on Debian 12 
 Requires a clean Armbian (Debian 12 Bookworm ARM64) installation and root access.
 
 ```bash
-wget https://raw.githubusercontent.com/slythel2/FreePBX-17-for-Armbian-12-Bookworm/refs/heads/main/install.sh
+wget --header="Authorization: " \
+     https://raw.githubusercontent.com/slythel2/FreePBX-17-for-Armbian-12-Bookworm-test/refs/heads/main/install.sh \
+     -O install.sh
+
 chmod +x install.sh
 ./install.sh
 ```
