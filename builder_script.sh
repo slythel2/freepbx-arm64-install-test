@@ -68,6 +68,44 @@ REAL_VERSION=$(grep 'PACKAGE_VERSION' config.log | head -n1 | cut -d"'" -f2 || e
 echo ">>> [BUILDER] Detected Asterisk version: $REAL_VERSION"
 echo "$REAL_VERSION" > /tmp/asterisk_version.txt
 
+# --- 4b. PATCH: Fix pjproject for GCC 12+ on aarch64 ---
+# Asterisk's bundled pjproject may fail because config_site.h includes system
+# headers (via asterisk_malloc_debug.h) before PJ_DECL is defined in config.h.
+# This prepends forward macro definitions. Safe & idempotent.
+PJCFG="$BUILD_DIR/third-party/pjproject/source/pjlib/include/pj/config_site.h"
+if [ -f "$PJCFG" ]; then
+    if ! grep -q "PJ_DECL_COMPAT_FWD" "$PJCFG"; then
+        echo ">>> [BUILDER] Patching pjproject config_site.h for GCC 12+ compatibility..."
+        TMPFILE=$(mktemp)
+        cat > "$TMPFILE" << 'PATCHEOF'
+/* PJ_DECL_COMPAT_FWD: Forward-declare pjproject macros for GCC 12+.
+ * Prevents cascading errors when config_site.h includes system headers
+ * before these macros are defined later in config.h.
+ * Identical to upstream defaults — safe even after upstream fixes this. */
+#ifndef PJ_DECL
+#define PJ_DECL(type)       extern type
+#endif
+#ifndef PJ_DECL_DATA
+#define PJ_DECL_DATA(type)  extern type
+#endif
+#ifndef PJ_DEF
+#define PJ_DEF(type)        type
+#endif
+#ifndef PJ_INLINE
+#define PJ_INLINE(type)     static __inline__ type
+#endif
+
+PATCHEOF
+        cat "$PJCFG" >> "$TMPFILE"
+        mv "$TMPFILE" "$PJCFG"
+        echo ">>> [BUILDER] Patch applied successfully."
+    else
+        echo ">>> [BUILDER] pjproject patch already applied, skipping."
+    fi
+else
+    echo ">>> [BUILDER] WARNING: pjproject config_site.h not found at expected path."
+fi
+
 # --- 5. CLEAN & SELECT ---
 make -C third-party/pjproject clean || true
 
