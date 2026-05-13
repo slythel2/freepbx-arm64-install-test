@@ -500,18 +500,35 @@ install_freepbx() {
 		error "Cannot connect to MySQL as asterisk user."
 	fi
 
-	log "Starting FreePBX core installation script..."
-	./install -n \
+	log "Starting FreePBX core installation script in verbose mode..."
+	
+	set +e
+	
+	# Run installation with verbose flag and save output to check for real errors
+	./install -n -v \
 		--dbuser asterisk \
 		--dbpass "$DB_ROOT_PASS" \
 		--webroot /var/www/html \
 		--user asterisk \
-		--group asterisk || {
-			local fp_exit=$?
-			warn "FreePBX install script returned non-zero exit code: $fp_exit"
-			warn "This is often a false positive (e.g. missing PM2). Continuing..."
-		}
-	log "FreePBX core installation script completed."
+		--group asterisk 2>&1 | tee /tmp/freepbx_install.log
+	
+	fp_exit=${PIPESTATUS[0]}
+	
+	set -e
+
+	cat /tmp/freepbx_install.log >> "$LOG_FILE"
+
+	if [ $fp_exit -ne 0 ]; then
+		if grep -q "You have successfully installed FreePBX" /tmp/freepbx_install.log; then
+			echo -e "${YELLOW}[WARNING] FreePBX returned error code $fp_exit, but output indicates success. Treating as false-positive and continuing.${NC}" | tee -a "$LOG_FILE"
+		else
+			echo -e "${RED}[ERROR] FreePBX core installation failed with code $fp_exit! Printing last 30 lines of verbose log:${NC}" | tee -a "$LOG_FILE"
+			tail -n 30 /tmp/freepbx_install.log
+			exit $fp_exit
+		fi
+	fi
+
+	echo -e "${GREEN}[INFO] FreePBX core installation script completed.${NC}" | tee -a "$LOG_FILE"
 }
 
 install_freepbx_modules() {
