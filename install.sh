@@ -553,7 +553,6 @@ install_freepbx_modules() {
 	log "Removing problematic firewall module..."
 	fwconsole ma remove firewall &>/dev/null || true
 	log "Module installation phase finished."
-}
 
 	log "All modules installed. Reloading FreePBX..."
 	fwconsole reload || true
