@@ -9,7 +9,7 @@ A vibe-coded, "one-click" installer for Asterisk 22 LTS and FreePBX 17 on Debian
 Requires a clean Armbian (Debian 12 Bookworm ARM64) installation and root access.
 
 ```bash
-wget https://raw.githubusercontent.com/slythel2/FreePBX-17-for-Armbian-12-Bookworm/refs/heads/main/install.sh
+wget https://raw.githubusercontent.com/slythel2/FreePBX-17-for-Armbian-12-Bookworm-test/refs/heads/main/install.sh
 chmod +x install.sh
 ./install.sh
 ```
@@ -18,7 +18,7 @@ Simply copy and paste.
 ## Uninstall Script
 
 ```bash
-wget https://raw.githubusercontent.com/slythel2/FreePBX-17-for-Armbian-12-Bookworm/refs/heads/main/uninstall.sh
+wget https://raw.githubusercontent.com/slythel2/FreePBX-17-for-Armbian-12-Bookworm-test/refs/heads/main/uninstall.sh
 chmod +x uninstall.sh
 ./uninstall.sh
 ```
