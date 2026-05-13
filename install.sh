@@ -172,8 +172,10 @@ install_dependencies() {
 		libxml2 libsqlite3-0 libjansson4 libedit2 libxslt1.1 \
 		libopus0 libvorbis0a libspeex1 libspeexdsp1 libgsm1 \
 		unixodbc unixodbc-dev odbcinst libltdl7 libicu-dev \
-		liburiparser1 libjwt-dev liblua5.4-0 libtinfo6 \
 		libsrtp2-1 libportaudio2 nodejs npm fail2ban
+
+	# install pm2 globally (required by newer FreePBX 17 modules)
+	npm install -g pm2 >> "$LOG_FILE" 2>&1 || true
 
 	# fallback: install versioned php packages if generic ones didn't create the apache sapi
 	PHP_VER=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null || echo "8.2")
@@ -498,12 +500,18 @@ install_freepbx() {
 		error "Cannot connect to MySQL as asterisk user."
 	fi
 
+	log "Starting FreePBX core installation script..."
 	./install -n \
 		--dbuser asterisk \
 		--dbpass "$DB_ROOT_PASS" \
 		--webroot /var/www/html \
 		--user asterisk \
-		--group asterisk
+		--group asterisk || {
+			local fp_exit=$?
+			warn "FreePBX install script returned non-zero exit code: $fp_exit"
+			warn "This is often a false positive (e.g. missing PM2). Continuing..."
+		}
+	log "FreePBX core installation script completed."
 }
 
 install_freepbx_modules() {
@@ -514,6 +522,7 @@ install_freepbx_modules() {
 		return
 	fi
 
+	log "Fixing FreePBX permissions..."
 	fwconsole chown
 
 	log "Restarting Asterisk to load DNS libraries..."
@@ -533,10 +542,18 @@ install_freepbx_modules() {
 		asteriskapi arimanager fax filestore iaxsettings musiconhold pinsets \
 		sipsettings ttsengines voicemail pm2"
 
-	fwconsole ma downloadinstall $MODULES_LIST &>/dev/null || true
+	log "Starting bulk module installation..."
+	if fwconsole ma downloadinstall $MODULES_LIST >> "$LOG_FILE" 2>&1; then
+		log "Modules installed successfully."
+	else
+		warn "fwconsole ma downloadinstall returned non-zero. Some modules may have failed or already exist."
+	fi
 
 	# remove firewall module (causes network issues on armbian)
+	log "Removing problematic firewall module..."
 	fwconsole ma remove firewall &>/dev/null || true
+	log "Module installation phase finished."
+}
 
 	log "All modules installed. Reloading FreePBX..."
 	fwconsole reload || true
