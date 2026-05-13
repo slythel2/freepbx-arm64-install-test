@@ -49,24 +49,6 @@ NET_GW=$(ip route show default 2>/dev/null | awk '{print $3; exit}')
 
 echo "✓ detected interface: $NET_IF (ip: ${NET_IP:-none}, gw: ${NET_GW:-none})"
 
-# write a static fallback in /etc/network/interfaces so we never lose connectivity
-if [ -n "$NET_IF" ] && [ -n "$NET_IP" ] && [ -n "$NET_GW" ]; then
-    NET_MASK=$(ip -4 addr show "$NET_IF" 2>/dev/null | grep -oP 'inet [\d.]+/\K\d+' | head -1)
-    # only add if not already configured
-    if ! grep -q "$NET_IF" /etc/network/interfaces 2>/dev/null; then
-        cat >> /etc/network/interfaces << EOF
-
-# fallback added by uninstall.sh — safe to remove after reboot
-auto $NET_IF
-iface $NET_IF inet static
-    address $NET_IP/${NET_MASK:-24}
-    gateway $NET_GW
-    dns-nameservers 8.8.8.8 1.1.1.1
-EOF
-        echo "✓ static fallback written to /etc/network/interfaces"
-    fi
-fi
-
 # backup NetworkManager config
 if [ -d /etc/NetworkManager ]; then
     mkdir -p /tmp/nm_backup
@@ -125,6 +107,7 @@ if [ -n "$PHP_VER" ]; then
     PHP_PKGS="$PHP_PKGS libapache2-mod-php${PHP_VER} php${PHP_VER}"
 fi
 
+echo "  -> Purging packages via apt-get (this may take a few minutes)..."
 DEBIAN_FRONTEND=noninteractive apt-get purge -y \
     apache2 apache2-bin apache2-data apache2-utils \
     mariadb-server mariadb-client mariadb-common mysql-common \
@@ -133,11 +116,14 @@ DEBIAN_FRONTEND=noninteractive apt-get purge -y \
     fail2ban \
     unixodbc unixodbc-dev odbcinst odbc-mariadb \
     2>&1 | grep -v "unable to locate" || true
+echo "  -> Package purge complete."
 
 # autoremove WITHOUT --purge (safer: leaves config files, prevents breakage)
+echo "  -> Running autoremove..."
 apt-get autoremove -y 2>/dev/null || true
 
 # fix any half-configured packages
+echo "  -> Fixing broken packages if any..."
 dpkg --configure -a 2>/dev/null || true
 apt-get -f install -y 2>/dev/null || true
 
@@ -213,11 +199,13 @@ delgroup asterisk &>/dev/null || true
 # ============================================================================
 echo -e "${YELLOW}[6/7] cleaning residual files...${NC}"
 
+echo "  -> Removing configuration remnants..."
 rm -rf /etc/mysql 2>/dev/null || true
 rm -rf /etc/apache2 2>/dev/null || true
 rm -f /etc/odbcinst.ini /etc/odbc.ini 2>/dev/null || true
 rm -f /etc/my.cnf ~/.my.cnf 2>/dev/null || true
 
+echo "  -> Removing database and web server data remnants..."
 rm -rf /var/lib/mysql 2>/dev/null || true
 rm -rf /var/lib/mysql-files 2>/dev/null || true
 rm -rf /var/lib/mysql-keyring 2>/dev/null || true
@@ -227,6 +215,7 @@ rm -rf /var/log/apache2 2>/dev/null || true
 rm -rf /var/lib/apache2 2>/dev/null || true
 rm -rf /usr/share/mysql 2>/dev/null || true
 
+echo "  -> Removing installer artifacts..."
 rm -rf /tmp/pbx_installer_files
 rm -rf /var/log/pbx
 rm -f /etc/update-motd.d/99-pbx-status
@@ -234,6 +223,7 @@ rm -f /etc/tmpfiles.d/mariadb.conf
 rm -f /etc/fail2ban/filter.d/asterisk-pjsip.conf
 rm -f /etc/fail2ban/jail.d/asterisk.local
 
+echo "  -> Cleaning apt cache..."
 apt-get clean &>/dev/null
 
 # ============================================================================
