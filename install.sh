@@ -44,7 +44,7 @@ warn() { echo -e "${YELLOW}[WARNING] $1${NC}" | tee -a "$LOG_FILE"; }
 
 error() {
 	echo -e "${RED}[ERROR] $1${NC}" | tee -a "$LOG_FILE"
-	exit 1
+	errorHandler "$BASH_LINENO" 1 "$1"
 }
 
 errorHandler() {
@@ -518,7 +518,7 @@ install_freepbx() {
 	rm -rf freepbx 2>/dev/null || true
 
 	log "Downloading FreePBX 17 tarball..."
-	if ! wget -q http://mirror.freepbx.org/modules/packages/freepbx/freepbx-17.0-latest.tgz; then
+	if ! wget --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -t 3 http://mirror.freepbx.org/modules/packages/freepbx/freepbx-17.0-latest.tgz; then
 		error "Failed to download FreePBX tarball from mirror.freepbx.org"
 	fi
 	log "FreePBX tarball downloaded successfully."
