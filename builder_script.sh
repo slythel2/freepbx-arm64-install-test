@@ -64,7 +64,13 @@ echo ">>> [BUILDER] Configuring..."
     --without-gtk2
 
 # Extract actual Asterisk version from configure output
-REAL_VERSION=$(grep 'PACKAGE_VERSION' config.log | head -n1 | cut -d"'" -f2 || echo "unknown")
+# config.log contains both "#define PACKAGE_VERSION" (C macro) and "PACKAGE_VERSION='x.y.z'" (shell var).
+# We must match only the shell variable form to get the full semver (e.g., 22.9.0).
+REAL_VERSION=$(grep "^PACKAGE_VERSION='" config.log | head -n1 | cut -d"'" -f2 || echo "")
+if [ -z "$REAL_VERSION" ]; then
+    # Fallback: try makeopts which also has the version
+    REAL_VERSION=$(grep "^ASTERISK_VERSION=" makeopts 2>/dev/null | cut -d'=' -f2 || echo "unknown")
+fi
 echo ">>> [BUILDER] Detected Asterisk version: $REAL_VERSION"
 echo "$REAL_VERSION" > /tmp/asterisk_version.txt
 
