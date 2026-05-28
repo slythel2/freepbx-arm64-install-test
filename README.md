@@ -14,22 +14,6 @@ chmod +x install.sh
 ./install.sh
 ```
 
-### CLI Flags
-| Flag | Description |
-|------|-------------|
-| `--skipversion` | Skip the self-update check at startup |
-| `--nochrony` | Skip chrony (NTP) installation |
-
-## Uninstall
-
-```bash
-wget https://raw.githubusercontent.com/slythel2/freepbx-arm64-install-test/refs/heads/main/uninstall.sh
-chmod +x uninstall.sh
-./uninstall.sh
-```
-
-Completely removes Asterisk, FreePBX, and the full LAMP stack.
-
 ## Asterisk Updates
 
 The installer includes an update script with automatic backup and rollback:
@@ -39,6 +23,13 @@ update_asterisk.sh
 ```
 
 Pre-compiled Asterisk binaries are built on native ARM64 GitHub Actions runners and published as [GitHub Releases](https://github.com/slythel2/freepbx-arm64-install-test/releases). The updater downloads the latest release, backs up the current installation, deploys the new binaries, and automatically rolls back if the health check fails.
+
+## CLI Flags
+
+| Flag | Description |
+|------|-------------|
+| `--skipversion` | Skip the self-update check at startup |
+| `--nochrony` | Skip chrony (NTP) installation |
 
 ## Features
 
