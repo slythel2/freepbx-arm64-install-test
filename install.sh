@@ -728,6 +728,7 @@ install_freepbx_modules() {
 	[ -f /etc/dahdi/system.conf ] || echo "# DAHDI system config — configure if telephony hardware is installed" > /etc/dahdi/system.conf
 	[ -f /etc/modprobe.d/dahdi.conf ] || echo "# DAHDI modprobe options — configure if telephony hardware is installed" > /etc/modprobe.d/dahdi.conf
 	chown -R asterisk:asterisk /etc/dahdi
+	chown asterisk:asterisk /etc/modprobe.d/dahdi.conf 2>/dev/null || true
 
 	log "Module installation phase finished."
 
