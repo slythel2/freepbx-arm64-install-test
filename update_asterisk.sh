@@ -54,7 +54,7 @@ mkdir -p "${LOG_FOLDER}"
 touch "${LOG_FILE}"
 
 echo -e "${GREEN}========================================================${NC}"
-echo -e "${GREEN}   ASTERISK 22 ROBUST UPDATER (with Rollback)           ${NC}"
+echo -e "${GREEN}          ASTERISK 22 UPDATER (with Rollback)           ${NC}"
 echo -e "${GREEN}========================================================${NC}"
 
 log "Starting Asterisk 22 Robust Update with Rollback Protection..."
