@@ -118,7 +118,7 @@ errorHandler() {
 terminate() {
 	local exit_code=$?
 	if [ $exit_code -ne 0 ]; then
-		# errorHandler already printed debug info, just log the exit
+		# errorHandler already logged it
 		log "Script terminated with exit code $exit_code"
 	fi
 	message "Exiting script"
@@ -178,9 +178,9 @@ check_script_version() {
 block_trixie_upgrade() {
 	setCurrentStep "Blocking accidental Debian 13 (Trixie) upgrade..."
 
-	# Pin trixie packages to priority -1 so they are never installed
+	# block trixie packages
 	cat >/etc/apt/preferences.d/99-block-trixie.pref <<'EOF'
-# Block Debian 13 Trixie — FreePBX 17 only supports Debian 12 Bookworm
+# block Debian 13 Trixie - FreePBX 17 only supports Bookworm
 Package: *
 Pin: release n=trixie
 Pin-Priority: -1
@@ -296,7 +296,7 @@ system_upgrade() {
 
 	setCurrentStep "System upgrade and core dependencies..."
 	apt-get update >> "$LOG_FILE" 2>&1
-	# upgrade can fail on problematic packages, catch and fix
+	# upgrade can fail, catch and fix
 	if ! apt-get upgrade -y >> "$LOG_FILE" 2>&1; then
 		warn "apt-get upgrade had errors, attempting fix..."
 		apt-get -y --fix-broken install >> "$LOG_FILE" 2>&1 || true
@@ -307,7 +307,7 @@ system_upgrade() {
 install_dependencies() {
 	setCurrentStep "Installing required packages"
 
-	# pre-configure postfix to avoid interactive prompts during installation
+	# pre-configure postfix
 	debconf-set-selections <<< "postfix postfix/mailname string $(hostname -f)"
 	debconf-set-selections <<< "postfix postfix/main_mailer_type string 'Internet Site'"
 
@@ -324,7 +324,7 @@ install_dependencies() {
 		libsrtp2-1 libportaudio2 liburiparser1 nodejs npm fail2ban python3-systemd \
 		ffmpeg lame mpg123 postfix
 
-	# install chrony for time sync (skip with --nochrony)
+	# chrony for NTP
 	if [ "$nochrony" = false ]; then
 		log "Installing chrony for NTP time synchronization..."
 		apt-get install -y chrony >> "$LOG_FILE" 2>&1 || warn "Failed to install chrony."
@@ -332,10 +332,10 @@ install_dependencies() {
 		log "Skipping chrony installation (--nochrony flag set)."
 	fi
 
-	# install pm2 globally (required by newer FreePBX 17 modules)
+	# pm2 required by FreePBX 17 modules
 	npm install -g pm2 >> "$LOG_FILE" 2>&1 || true
 
-	# fallback: install versioned php packages if generic ones didn't create the apache sapi
+	# fallback: versioned php packages if generic ones didn't create the apache sapi
 	PHP_VER=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null || echo "8.2")
 	if [ ! -f "/etc/php/${PHP_VER}/apache2/php.ini" ]; then
 		message "PHP ${PHP_VER} apache2 SAPI not found, installing version-specific packages..."
@@ -360,17 +360,17 @@ configure_php() {
 
 	for INI in /etc/php/${PHP_VER}/apache2/php.ini /etc/php/${PHP_VER}/cli/php.ini; do
 		if [ -f "$INI" ]; then
-			# performance tuning
+			# performance
 			sed -i 's/^memory_limit = .*/memory_limit = 512M/' "$INI"
 			sed -i 's/^upload_max_filesize = .*/upload_max_filesize = 120M/' "$INI"
 			sed -i 's/^post_max_size = .*/post_max_size = 120M/' "$INI"
 			sed -i 's/^;date.timezone =.*/date.timezone = UTC/' "$INI"
-			# opcache
+			# opcache settings
 			sed -i 's/^;opcache.enable=.*/opcache.enable=1/' "$INI"
 			sed -i 's/^;opcache.memory_consumption=.*/opcache.memory_consumption=128/' "$INI"
 			sed -i 's/^;opcache.interned_strings_buffer=.*/opcache.interned_strings_buffer=8/' "$INI"
 			sed -i 's/^;opcache.max_accelerated_files=.*/opcache.max_accelerated_files=10000/' "$INI"
-			# mysql socket paths
+			# mysql socket
 			sed -i "s|^;*pdo_mysql.default_socket.*|pdo_mysql.default_socket = /run/mysqld/mysqld.sock|" "$INI"
 			sed -i "s|^;*mysqli.default_socket.*|mysqli.default_socket = /run/mysqld/mysqld.sock|" "$INI"
 			sed -i "s|^;*mysql.default_socket.*|mysql.default_socket = /run/mysqld/mysqld.sock|" "$INI"
@@ -395,7 +395,7 @@ install_ioncube_loader() {
 		fi
 
 		PHP_VER=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null || echo "8.2")
-		# make sure php dirs exist
+		# ensure php dirs exist
 		mkdir -p "/etc/php/${PHP_VER}/mods-available"
 		mkdir -p "/etc/php/${PHP_VER}/apache2/conf.d"
 		mkdir -p "/etc/php/${PHP_VER}/cli/conf.d"
@@ -404,7 +404,7 @@ install_ioncube_loader() {
 			echo "zend_extension = $PHP_EXT_DIR/ioncube_loader_lin_${PHP_VER}.so" > "/etc/php/${PHP_VER}/mods-available/ioncube.ini"
 			ln -sf /etc/php/${PHP_VER}/mods-available/ioncube.ini /etc/php/${PHP_VER}/apache2/conf.d/00-ioncube.ini
 			ln -sf /etc/php/${PHP_VER}/mods-available/ioncube.ini /etc/php/${PHP_VER}/cli/conf.d/00-ioncube.ini
-			log “ionCube Loader installed successfully”
+			log "ionCube Loader installed successfully"
 		else
 			warn "ionCube Loader file not found, FreePBX commercial modules may not work"
 		fi
@@ -559,7 +559,7 @@ configure_odbc() {
 configure_apache() {
 	setCurrentStep "Hardening Apache configuration..."
 
-	# vhost config (heredoc to preserve apache env vars)
+	# vhost config
 	cat > /etc/apache2/sites-available/freepbx.conf <<'APACHEEOF'
 <VirtualHost *:80>
     ServerAdmin webmaster@localhost
@@ -585,17 +585,17 @@ APACHEEOF
 	a2ensite freepbx.conf
 	a2dissite 000-default.conf
 
-	# harden Apache — hide version info from attackers
+	# hide apache version
 	sed -i 's/^ServerTokens .*/ServerTokens Prod/' /etc/apache2/conf-available/security.conf 2>/dev/null || true
 	sed -i 's/^ServerSignature .*/ServerSignature Off/' /etc/apache2/conf-available/security.conf 2>/dev/null || true
 	a2enconf security 2>/dev/null || true
 
 	cp "${FILES_DIR}/index.php" /var/www/html/index.php
 
-	# webroot ownership (apache runs as asterisk)
+	# webroot ownership
 	chown -R asterisk:asterisk /var/www/html
 
-	# php session dir must be writable by asterisk
+	# php session dir
 	PHP_VER=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null || echo "8.2")
 	SESSION_DIR="/var/lib/php/sessions"
 	mkdir -p "$SESSION_DIR"
@@ -634,7 +634,7 @@ verify_dns() {
 	setCurrentStep "Verifying DNS resolution for SIP trunks..."
 	if command -v dig &> /dev/null; then
 		if dig "google.com" +short | grep -q .; then
-			log “DNS resolution is working correctly”
+			log "DNS resolution is working correctly"
 		else
 			warn "DNS resolution may have issues. Check /etc/resolv.conf"
 		fi
@@ -651,7 +651,7 @@ install_freepbx() {
 	setCurrentStep "Installing FreePBX 17..."
 	cd /usr/src
 
-	# Remove old tarball/directory if re-running
+	# clean up if re-running
 	rm -f freepbx-17.0-latest.tgz 2>/dev/null || true
 	rm -rf freepbx 2>/dev/null || true
 
@@ -675,7 +675,7 @@ install_freepbx() {
 	
 	set +e
 	
-	# Run installation with verbose flag and save output to check for real errors
+	# run with verbose output so we can check for real errors
 	./install -n -v \
 		--dbuser asterisk \
 		--dbpass "$DB_ROOT_PASS" \
@@ -717,7 +717,7 @@ install_freepbx_modules() {
 	systemctl restart asterisk
 	sleep 5
 
-	# bulk install all modules
+	# module list
 	MODULES_LIST="asterisk-cli backup blacklist bulkhandler certman cidlookup \
 		configedit contactmanager customappsreg featurecodeadmin presencestate \
 		qxact_reports recordings soundlang superfecta ucp userman \
@@ -740,32 +740,25 @@ install_freepbx_modules() {
 	log "Upgrading all modules (framework, core, etc.) to ensure dependencies are met..."
 	fwconsole ma upgradeall >> "$LOG_FILE" 2>&1 || true
 
-	# remove firewall module (known to cause network lockout issues)
+	# remove firewall module (causes network lockouts)
 	log "Removing problematic firewall module..."
 	fwconsole ma remove firewall &>/dev/null || true
 
-	# create DAHDI stub config files — the dahdiconfig module checks for these
-	# and throws errors on the dashboard if they're missing. On systems without
-	# physical telephony hardware these files won't exist naturally.
-	# Empty stubs silence the warnings while keeping the module functional.
+	# DAHDI stub configs - needed by dahdiconfig module on systems without hardware
 	log "Creating DAHDI stub config files..."
 	mkdir -p /etc/dahdi
-	[ -f /etc/dahdi/modules ]     || echo "# DAHDI modules — configure if telephony hardware is installed" > /etc/dahdi/modules
-	[ -f /etc/dahdi/system.conf ] || echo "# DAHDI system config — configure if telephony hardware is installed" > /etc/dahdi/system.conf
-	[ -f /etc/modprobe.d/dahdi.conf ] || echo "# DAHDI modprobe options — configure if telephony hardware is installed" > /etc/modprobe.d/dahdi.conf
+	[ -f /etc/dahdi/modules ]     || echo "# configure if telephony hardware is installed" > /etc/dahdi/modules
+	[ -f /etc/dahdi/system.conf ] || echo "# configure if telephony hardware is installed" > /etc/dahdi/system.conf
+	[ -f /etc/modprobe.d/dahdi.conf ] || echo "# configure if telephony hardware is installed" > /etc/modprobe.d/dahdi.conf
 	chown -R asterisk:asterisk /etc/dahdi
 	chown asterisk:asterisk /etc/modprobe.d/dahdi.conf 2>/dev/null || true
 
 	log "Module installation phase finished."
 
-	# fix permissions AFTER module install — module install.php scripts run as
-	# root and create config files (e.g. http_custom.conf) owned by root:root.
-	# Without this, the web GUI (running as asterisk) gets Permission denied
-	# when trying to update those files later.
+	# fix permissions after module install - install.php runs as root and can leave files owned by root
 	log "Fixing permissions after module installation..."
 	fwconsole chown
-	# fwconsole chown sometimes misses specific config files (like http_custom.conf)
-	# Force explicit ownership to prevent GUI Permission Denied errors
+	# fwconsole chown can miss some files, force it
 	chown -R asterisk:asterisk /etc/asterisk /var/www/html /var/lib/asterisk /var/spool/asterisk /var/log/asterisk
 
 	log "Updating Sangoma GPG keys to prevent dashboard warnings..."
@@ -785,11 +778,10 @@ configure_fail2ban() {
 	cp "${FILES_DIR}/asterisk-pjsip.conf" /etc/fail2ban/filter.d/asterisk-pjsip.conf
 	cp "${FILES_DIR}/asterisk-jail.local" /etc/fail2ban/jail.d/asterisk.local
 
-	# Fix for Debian 12: rsyslog is not installed by default, so /var/log/auth.log doesn't exist.
-	# We must instruct the default sshd jail to use the systemd backend instead.
+	# Debian 12: rsyslog not installed by default, use systemd backend for sshd jail
 	echo -e "[sshd]\nbackend = systemd" > /etc/fail2ban/jail.d/sshd.local
 
-	# Ensure log files exist so Fail2ban doesn't crash on startup
+	# log files must exist before fail2ban starts
 	touch /var/log/asterisk/full /var/log/asterisk/messages
 	chown asterisk:asterisk /var/log/asterisk/full /var/log/asterisk/messages
 
@@ -800,7 +792,7 @@ configure_fail2ban() {
 	if systemctl is-active --quiet fail2ban; then
 		JAILS_ACTIVE=$(fail2ban-client status 2>/dev/null | grep "Jail list" | grep -o "asterisk" | wc -l)
 		if [ "$JAILS_ACTIVE" -ge 1 ]; then
-			log “Fail2ban is active and protecting Asterisk (${JAILS_ACTIVE} jails)”
+			log "Fail2ban is active and protecting Asterisk (${JAILS_ACTIVE} jails)"
 		else
 			warn "Fail2ban is running but jails may not be active yet."
 		fi
@@ -900,13 +892,13 @@ cleanup() {
 # ============================================================================
 
 main() {
-	# Setup
+	# setup
 	export PATH=$SANE_PATH
 	check_root_privileges
 	setup_logging
 	log "Logging initialized to $LOG_FILE"
 
-	# Prevent parallel executions
+	# prevent parallel runs
 	if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
 		echo "Another instance of the installer is already running (PID $(cat "$PIDFILE"))."
 		echo "If this is incorrect, remove $PIDFILE and try again."
@@ -914,7 +906,7 @@ main() {
 	fi
 	echo $$ > "$PIDFILE"
 
-	# Set error handlers
+	# error handlers
 	trap 'errorHandler "$LINENO" "$?" "$BASH_COMMAND"' ERR
 	trap 'rm -f "$PIDFILE"; terminate' EXIT
 
@@ -926,13 +918,13 @@ main() {
 	echo "   Version: $SCRIPTVER"
 	echo "========================================================"
 
-	# Pre-flight checks
+	# pre-flight
 	check_disk_space "/" 5 "root filesystem"
 	check_architecture
 	check_script_version
 	block_trixie_upgrade
 
-	# Main installation flow
+	# install
 	download_config_files
 	system_upgrade
 	install_dependencies
